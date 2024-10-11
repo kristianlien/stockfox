@@ -5,7 +5,6 @@ import sqlite3
 
 db_file = "current_inventory.db"
 
-
 def console_clear():
     os.system('cls' if os.name == 'nt' else 'clear')
 
@@ -23,7 +22,6 @@ def db_init():
                         current_stock INTEGER
                     )''')
     conn.commit()
-    conn.close()
 
 def get_keypress():
     return msvcrt.getch().decode('utf-8')
@@ -43,17 +41,15 @@ def writeToDB(product_name, product_code, ean, current_stock):
     cursor.execute("INSERT INTO products (product_name, product_code, ean, current_stock) VALUES (?, ?, ?, ?)", 
                    (product_name, product_code, ean, current_stock))
     conn.commit()
-    conn.close()
-
 
 def menu():
     console_clear()
-    print("   _____  _                _     ______          ")
-    print("  / ____|| |              | |   |  ____|         ")
-    print(" | (___  | |_  ___    ___ | | __| |__  ___ __  __")
-    print("  \___ \ | __|/ _ \  / __|| |/ /|  __|/ _ \\ \/ /")
-    print("  ____) || |_| (_) || (__ |   < | |  | (_) |>  < ")
-    print(" |_____/  \__|\___/  \___||_|\_\|_|   \___//_/\_\ ")
+    print("   _____  _                 _     ______          ")
+    print("  / ____|| |               | |   |  ____|         ")
+    print(" | (___  | |_   ___    ___ | | __| |__  ___ __  __")
+    print("  \___ \ | __| / _ \  / __|| |/ /|  __|/ _ \\ \/ /")
+    print("  ____) || |_ | (_) || (__ |   < | |  | (_) |>  < ")
+    print(" |_____/  \__| \___/  \___||_|\_\|_|   \___//_/\_\ ")
     print(" ")
     print("1. View current stock")
     print("2. Generate picklist")
@@ -84,11 +80,27 @@ def run(choice):
 
 
 def viewStock():
-    #todo  
-    print("WIP")  
+        console_clear()
+        cursor.execute("SELECT id, product_name, product_code, current_stock FROM products")
+        results = cursor.fetchall()
+
+        # Print a header for the table
+        print(f"{'ID':<5} {'Product Name':<30} {'Product Code':<15} {'Current Stock':<15}")
+        print("-" * 70)
+
+        # Iterate through the results and print each product in a pretty format
+        for row in results:
+            id, product_name, product_code, current_stock = row
+            print(f"{id:<5} {product_name:<30} {product_code:<15} {current_stock:<15}")
+        
+        print(" ")
+        pressAnyKeyForMenu()
+
+
+#picklist
 
 def generatePicklist():
-    #todo
+    
     print("WIP")  
 
 
@@ -109,7 +121,6 @@ def newProduct():
     pressAnyKeyForMenu()
 
 def removeProduct():
-
     #add confirm
     console_clear()
     product_delete = input("Enter the product code or EAN of the product you want to delete:")
@@ -131,5 +142,7 @@ def settings():
     print("Version Alpha")
     print("Made in Norway ♥")
     print("")
+    print("Support: stockfox@lienvending.solutions")
+    print(" ")
     pressAnyKeyForMenu()
 menu()
