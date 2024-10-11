@@ -54,9 +54,10 @@ def menu():
     print("1. View current stock")
     print("2. Generate picklist")
     print("3. Update product stock")
-    print("4. Enter new product into system")
-    print("5: Remove product from system")
-    print("6: Settings/information")
+    print("4. Add new stock to system")
+    print("5. Enter new product into system")
+    print("6: Remove product from system")
+    print("7: Settings/information")
     choice = get_keypress()
     run(choice)
 
@@ -68,10 +69,12 @@ def run(choice):
     elif choice == "3":
         updateStock()
     elif choice == "4":
-        newProduct()
+        addStock()
     elif choice == "5":
-        removeProduct()
+        newProduct()
     elif choice == "6":
+        removeProduct()
+    elif choice == "7":
         settings()
     else:
         print("Invalid choice")
@@ -100,13 +103,85 @@ def viewStock():
 #picklist
 
 def generatePicklist():
-    
-    print("WIP")  
-
+    print("WIP")
 
 def updateStock():
-    #todo
-    print("WIP")  
+    print("Update stock:")
+    print(" ")
+    while True:
+        us_pcode = input("Enter product code or scan barcode (or press Enter to save/exit): ")
+        if us_pcode.isdigit():
+            cursor.execute("SELECT product_name FROM products WHERE ean=?", (us_pcode,))
+            result = cursor.fetchone() 
+            if result:
+                cursor.execute("SELECT current_stock FROM products WHERE ean=?", (us_pcode,))
+                current_quantity = cursor.fetchone() 
+                product_name = result[0]
+                us_quantity = input(f"Enter quantity of {product_name} (current quantity: {current_quantity}): ")
+                cursor.execute("UPDATE products SET current_stock = ? WHERE ean=?", 
+                               (us_quantity, us_pcode))
+            else:
+                print("Product not found.")
+                time.sleep(0.5)
+                updateStock()
+
+        elif us_pcode.isalpha():
+            cursor.execute("SELECT product_name FROM products WHERE product_code=?", (us_pcode,))
+            result = cursor.fetchone() 
+            if result:
+                cursor.execute("SELECT current_stock FROM products WHERE product_code=?", (us_pcode,))
+                current_quantity = cursor.fetchone() 
+                product_name = result[0]
+                us_quantity = input(f"Enter quantity of {product_name} (current quantity: {current_quantity}): ")
+                cursor.execute("UPDATE products SET current_stock = ? WHERE product_code=?", 
+                               (us_quantity, us_pcode))
+            else:
+                print("Product not found.")
+                time.sleep(0.5)
+                updateStock()
+
+        else:
+            menu()
+            
+
+            
+
+
+def addStock():
+    console_clear()
+    print("Add stock:")
+    print(" ")
+    while True: 
+        as_pcode = input("Enter product code or scan barcode (or press Enter to save/exit): ")
+        if as_pcode.isdigit():
+            cursor.execute("SELECT product_name FROM products WHERE ean=?", (as_pcode,))
+            result = cursor.fetchone() 
+            if result:
+                product_name = result[0]
+                as_quantity = input(f"Enter quantity of {product_name} to be added to inventory: ")
+                cursor.execute("UPDATE products SET current_stock = current_stock + ? WHERE ean=?", 
+                               (as_quantity, as_pcode))
+            else:
+                print("Product not found.")
+        elif as_pcode.isalpha():
+            cursor.execute("SELECT product_name FROM products WHERE product_code=?", (as_pcode,))
+            result = cursor.fetchone()
+            if result:
+                product_name = result[0]
+                as_quantity = input(f"Enter quantity of {product_name} to be added to inventory: ")
+                cursor.execute("UPDATE products SET current_stock = current_stock + ? WHERE product_code=?", 
+                               (as_quantity, as_pcode))
+            else:
+                print("Product not found.")
+                time.sleep(0.5)
+                addStock()
+        else:
+            menu()
+            
+    
+
+
+
 
 def newProduct():
     console_clear()
@@ -123,15 +198,33 @@ def newProduct():
 def removeProduct():
     #add confirm
     console_clear()
-    product_delete = input("Enter the product code or EAN of the product you want to delete:")
+    rp_pcode = input("Enter the product code or EAN of the product you want to delete:")
 
-    if product_delete.isdigit():
-        cursor.execute("DELETE FROM products WHERE ean=?",
-                   (product_delete))
+    if rp_pcode.isdigit():
+        cursor.execute("SELECT product_name FROM products WHERE ean=?",
+                        (rp_pcode,))
+        result = cursor.fetchone()
+        confirmation_delete = input(f"Are you sure you want to delete {result}? (Y/N)")
+        if confirmation_delete == "y" or confirmation_delete == "Y":
+            cursor.execute("DELETE FROM products WHERE ean=?",
+                   (rp_pcode))
+        else:
+            menu()
+
+    elif rp_pcode.isalpha():
+        cursor.execute("SELECT product_name FROM products WHERE product_code=?",
+                        (rp_pcode,))
+        result = cursor.fetchone()
+        confirmation_delete = input(f"Are you sure you want to delete {result}? (Y/N)")
+        if confirmation_delete == "y" or confirmation_delete == "Y":
+            cursor.execute("DELETE FROM products WHERE product_code=?",
+                   (rp_pcode))
+        else:
+            menu()
+        
+    
     else:
-
-        cursor.execute("DELETE FROM products WHERE product_name=?"
-                       (product_delete))
+        menu()
         
     conn.commit()
 
