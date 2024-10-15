@@ -55,7 +55,7 @@ def writeToDB(product_name, product_code, ean, current_stock, location, supplier
     
     # Insert new product the database
     cursor.execute("INSERT INTO products (product_name, product_code, ean, current_stock, location, supplier, status) VALUES (?, ?, ?, ?, ?, ?, ?)", 
-                   (product_name, product_code, ean, current_stock, location, supplier, status))
+                   (product_name, product_code.strip(), ean.strip(), current_stock, location, supplier, status))
     conn.commit()
 
 def menu():
@@ -103,18 +103,30 @@ def run(choice):
 
 def viewStock():
     console_clear()
-    cursor.execute("SELECT id, product_name, product_code, current_stock, location, status FROM products")
+    cursor.execute("SELECT product_name, product_code, current_stock, location, status FROM products")
     results = cursor.fetchall()
 
+    # Sort results: first by status (active first), then by location
+    results.sort(key=lambda row: (row[4].lower() != "active", row[3].lower()))  # row[4] is status, row[3] is location
+
     # header
-    print(f"{'ID':<5} {'Product Name':<30} {'Product Code':<15} {'Current Stock':<15} {'Location':<15} {'Status':<5}")
-    print("-" * 95)
+    print(f"{'Product Name':<30} {'Product Code':<15} {'Current Stock':<15} {'Location':<15} {'Status':<25}")
+    print("-" * 115)
 
     # print results
     for row in results:
-        id, product_name, product_code, current_stock, location, status = row
+        product_name, product_code, current_stock, location, status = row
         
-        #status color
+        # Check for low stock
+        low_stock_warning = ""
+        if current_stock < 10:
+            low_stock_warning = " (low stock!)"
+        if status.lower() == "inactive":
+            low_stock_warning = ""
+
+        current_stock = str(current_stock) + low_stock_warning
+
+        # status color
         if status.lower() == "active":
             status_display = bcolors.OKGREEN + "██ ACTIVE" + bcolors.ENDC
         elif status.lower() == "inactive":
@@ -122,23 +134,33 @@ def viewStock():
         else:
             status_display = status
 
-        print(f"{id:<5} {product_name:<30} {product_code:<15} {current_stock:<15} {location:<15} {status_display:<5}")
+        print(f"{product_name:<30} {product_code:<15} {current_stock:<15} {location:<15} {status_display:<5}")
     
     print(" ")
     pressAnyKeyForMenu()
 
-def generatePicklist(): #make it remove from stock, and add cancel functionality
+
+def generatePicklist():  # make it remove from stock, and add cancel functionality
     console_clear()
     
     product_quantities = {}
 
     while True:
         code = input("Enter product code or EAN (or press Enter to generate, type 'custom' to add a custom product, type 'exit' to quit): ").strip()
-        if not code:
-            break
-
+        
+        # Check for exit condition
         if code.lower() == "exit":
-            menu()
+            if not product_quantities:  # Check if no products have been added
+                print("Exiting without generating a picklist.")
+                return  # Exit the function
+            else:
+                # If products were added, ask for confirmation
+                confirmation = input("You have unsaved products in your picklist. Are you sure you want to exit? (Y/N): ").strip().lower()
+                if confirmation == "y":
+                    return  # Exit the function
+
+        if code == "":
+            break  # Break the loop to generate the picklist
 
         if code.lower() == 'custom':
             custom_name = input("Enter custom product name: ")
@@ -155,12 +177,16 @@ def generatePicklist(): #make it remove from stock, and add cancel functionality
             result = cursor.fetchone()
             cursor.execute("SELECT current_stock FROM products WHERE product_code=? OR ean=?", (code.upper(), code))
             stock = cursor.fetchone()
-            if result:
+            
+            if result and stock:  # Ensure that both product and stock are found
                 product_name = result[0]
                 while True:
                     try:
                         quantity = float(input(f"Enter quantity for {product_name} (Current inventory quantity: {stock[0]}): "))
-                        break
+                        if quantity > stock[0]:
+                            print("Quantity exceeds current stock. Please enter a valid quantity.")
+                        else:
+                            break
                     except ValueError:
                         print("Invalid quantity. Please enter a valid number.")
                 product_quantities[product_name] = quantity
@@ -172,16 +198,15 @@ def generatePicklist(): #make it remove from stock, and add cancel functionality
     # Create a list of products with their locations
     products_with_locations = []
     for product_name, quantity in product_quantities.items():
-    # Find the product code and location from the database
+        # Find the product code and location from the database
         cursor.execute("SELECT product_code, location FROM products WHERE product_name=?", (product_name,))
         result = cursor.fetchone()  # Use fetchone to get a single result
 
-    if result:
-        product_code, location = result  # Unpack the tuple into product_code and location
-        products_with_locations.append((product_name, quantity, location))
-    else:
-        print(f"Product {product_name} not found in the database.")
-
+        if result:
+            product_code, location = result  # Unpack the tuple into product_code and location
+            products_with_locations.append((product_name, quantity, location))
+        else:
+            print(f"Product {product_name} not found in the database.")
 
     # Sort products based on storage locations
     products_with_locations.sort(key=lambda item: item[2])  # Sort by location
@@ -235,11 +260,33 @@ def generatePicklist(): #make it remove from stock, and add cancel functionality
     absolute_path = os.path.abspath(html_file)
     webbrowser.open(f"file://{absolute_path}")
 
-    removeFromDB_choice = input("Do you want to update the inventory stock for the products in the picklist? (Y/N)")
+    removeFromDB_choice = input("Do you want to update the inventory stock for the products in the picklist? (Y/N): ")
 
     if removeFromDB_choice.lower() == "y":
-        print("WIP")
+        # Update the inventory in the database
+        for product_name, quantity in product_quantities.items():
+            # Fetch the current stock for the product
+            cursor.execute("SELECT current_stock FROM products WHERE product_name=?", (product_name,))
+            current_stock = cursor.fetchone()
 
+            if current_stock and current_stock[0] >= quantity:  # Ensure there is enough stock
+                new_stock = current_stock[0] - quantity
+                # Update the database with the new stock
+                cursor.execute("UPDATE products SET current_stock=? WHERE product_name=?", (new_stock, product_name))
+                print(f"Updated {product_name}: New stock is {new_stock}.")
+                pressAnyKeyForMenu()
+            else:
+                print(f"Not enough stock for {product_name}. Current stock is {current_stock[0] if current_stock else 0}.")
+                pressAnyKeyForMenu()
+
+        conn.commit()
+        print("Inventory updated successfully.")
+        time.sleep(1)
+        menu()
+    else:
+        print("Inventory was not updated")
+        time.sleep(1)
+        menu()
 
 
 def updateStock():
@@ -255,7 +302,7 @@ def updateStock():
                 cursor.execute("SELECT current_stock FROM products WHERE ean=?", (us_pcode,))
                 current_quantity = cursor.fetchone() 
                 product_name = result[0]
-                us_quantity = input(f"Enter quantity of {product_name} (current quantity: {current_quantity}): ")
+                us_quantity = input(f"Enter quantity of {product_name} (current quantity: {current_quantity[0]}): ")
                 cursor.execute("UPDATE products SET current_stock = ? WHERE ean=?", 
                                (us_quantity, us_pcode))
             else:
@@ -360,58 +407,119 @@ def newProduct():
     pressAnyKeyForMenu()
 
 def editProduct():
-    console_clear()
-    ep_pcode = input("Please input the product code for the product you want to edit (or press Enter to exit): ")
-    danger = "drop"
+    while True:
+        try:  
+            console_clear()
+            ep_pcode = input("Please input the product code for the product you want to edit (or press Enter to exit): ")
+            danger = "drop"
 
-
-
-    if ep_pcode.lower() == "sql":
-        print(" ")
-        print(bcolors.WARNING + "WARNING: Custom SQL commands can be very dangerous. Only do this if you know what you're doing!" + bcolors.ENDC)
-        while True:    
-            custom_sql = input("SQL command (type 'exit' to go back to menu): ")
-            if custom_sql.lower() == "exit":
+            if ep_pcode == "":
                 menu()
-            
-            if danger in custom_sql.lower():
-                danger_conf = input(f"Are you sure you want to run the SQL command '{custom_sql}'? (Y/N) ")
-                if danger_conf.lower() != "y":
-                    print("Command cancelled.")
-                    continue
+
+            if ep_pcode.lower() == "sql":
+                print(" ")
+                print(bcolors.WARNING + "WARNING: Custom SQL commands can be very dangerous. Only do this if you know what you're doing!" + bcolors.ENDC)
+                while True:    
+                    custom_sql = input("SQL command (type 'exit' to go back to menu): ")
+                    if custom_sql.lower() == "exit":
+                        menu()
                     
-            try:
-                cursor.execute(custom_sql)
-                result = cursor.fetchall()
-                print(result)
-            
-            except:
-                print("Invalid SQL query.")
-        
-        
+                    if danger in custom_sql.lower():
+                        danger_conf = input(f"Are you sure you want to run the SQL command '{custom_sql}'? (Y/N) ")
+                        if danger_conf.lower() != "y":
+                            print("Command cancelled.")
+                            continue
+                            
+                    try:
+                        cursor.execute(custom_sql)
+                        result = cursor.fetchall()
+                        print(result)
+                    
+                    except:
+                        print("Invalid SQL query.")
+                
+                
 
-    cursor.execute("SELECT * FROM products WHERE product_code=?", (ep_pcode.upper(),))
-    result = cursor.fetchone()
-    status = result[7]
-    if result:
-        if status.lower() == "active":
-            status_display = bcolors.OKGREEN + "██ ACTIVE" + bcolors.ENDC
-        elif status.lower() == "inactive":
-            status_display = bcolors.FAIL + "██ INACTIVE" + bcolors.ENDC
-        else:
-            status_display = status
-        print(" ")
-        print(f"1. Product name: {result[1]}")
-        print(f"2. Product code: {result[2]}")
-        print(f"3. Product EAN: {result[3]}")
-        print(f"4. Product location: {result[5]}") #stock is not displayed here, skipping [4]
-        print(f"5. Product supplier: {result[6]}")
-        print(f"6. Product status: {status_display}")
-        print(" ")
-        entryEdit = input("Enter which line you want to edit: ")
-        if entryEdit == 1:
-            ep_name = input("Please enter new product name: ")
+            cursor.execute("SELECT * FROM products WHERE product_code=?", (ep_pcode.upper(),))
+            result = cursor.fetchone()
+            status = result[7]
+            if result:
+                if status.lower() == "active":
+                    status_display = bcolors.OKGREEN + "██ ACTIVE" + bcolors.ENDC
+                elif status.lower() == "inactive":
+                    status_display = bcolors.FAIL + "██ INACTIVE" + bcolors.ENDC
+                else:
+                    status_display = status
+                print(" ")
+                print(f"1. Product name: {result[1]}")
+                print(f"2. Product code: {result[2]}")
+                print(f"3. Product EAN: {result[3]}")
+                print(f"4. Product location: {result[5]}") #stock is not displayed here, skipping [4]
+                print(f"5. Product supplier: {result[6]}")
+                print(f"6. Product status: {status_display}")
+                print(" ")
+                while True:
+                    try: 
+                        entryEdit = int(input("Enter which line you want to edit (or '0' to exit): "))
+                        break
 
+                    except ValueError:
+                        print("Please input a number")
+                        continue
+
+                if entryEdit == 0:
+                    editProduct()
+
+                if entryEdit == 1:
+                    new_name = input(f"Please enter new product name (current: {result[1]}): ")
+                    cursor.execute("UPDATE products SET product_name=? WHERE product_code=?", (new_name, ep_pcode.upper()))
+                    print(f"Product name changed to {new_name} successfully")
+                    time.sleep(1)
+                    editProduct()
+                elif entryEdit == 2:
+                    new_pcode = input(f"Please enter new product code (Current: {result[2]}): ")
+                    cursor.execute("UPDATE products SET product_code=? WHERE product_code=?", (new_pcode, ep_pcode.upper()))
+                    print(f"Product code changed to {new_pcode} successfully")
+                    time.sleep(1)
+                    editProduct()
+                elif entryEdit == 3:
+                    new_ean = input(f"Please enter new product EAN (Current: {result[3]}): ")
+                    cursor.execute("UPDATE products SET ean=? WHERE product_code=?", (new_ean, ep_pcode.upper()))
+                    print(f"Product EAN changed to {new_ean} successfully")
+                    time.sleep(1)
+                    editProduct()
+                elif entryEdit == 4:
+                    new_location = input(f"Please enter new product location (Current: {result[5]}): ")
+                    cursor.execute("UPDATE products SET location=? WHERE product_code=?", (new_location, ep_pcode.upper()))
+                    print(f"Product location changed to {new_location} successfully")
+                    time.sleep(1)
+                    editProduct()
+                elif entryEdit == 5:
+                    new_supplier = input(f"Please enter new product supplier (Current: {result[6]}): ")
+                    cursor.execute("UPDATE products SET supplier=? WHERE product_code=?", (new_supplier, ep_pcode.upper()))
+                    print(f"Product supplier changed to {new_supplier} successfully")
+                    time.sleep(1)
+                    editProduct()
+                elif entryEdit == 6:
+                    ep_status = input(f"Please enter new product EAN (Current: {status_display} | A = Active, I = Inactive or type custom status): ")
+                    if ep_status.lower() == "a":
+                        new_status = "Active"
+                    elif ep_status.lower() == "i":
+                        new_status = "Inactive"
+                    else:
+                        new_status = ep_status
+                    cursor.execute("UPDATE products SET status=? WHERE product_code=?", (new_status, ep_pcode.upper()))
+                    if new_status.lower() == "active":
+                        status_display_confirmation = bcolors.OKGREEN + "██ ACTIVE" + bcolors.ENDC
+                    elif new_status.lower() == "inactive":
+                        status_display_confirmation = bcolors.FAIL + "██ INACTIVE" + bcolors.ENDC
+                    else:
+                        status_display_confirmation = new_status
+                    print(f"Product status changed to {status_display_confirmation} successfully")
+                    time.sleep(1)
+                    editProduct()
+        except:
+            print("Invalid product, try again")
 
 def removeProduct():
     console_clear()
@@ -452,6 +560,7 @@ def removeProduct():
             confirmation_delete = input(f"Are you sure you want to delete {result[0]}? (Y/N): ")
             if confirmation_delete.lower() == "y":
                 cursor.execute("DELETE FROM products WHERE ean=?", (rp_pcode,))
+                print("Product deleted")
         else:
             print("Product not found.")
             time.sleep(0.5)
