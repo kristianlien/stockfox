@@ -21,7 +21,10 @@ def db_init():
                         product_name TEXT NOT NULL,
                         product_code TEXT NOT NULL,
                         ean INTEGER,
-                        current_stock INTEGER
+                        current_stock INTEGER,
+                        location TEXT,
+                        supplier TEXT,
+                        status TEXT
                     )''')
     conn.commit()
 
@@ -35,13 +38,13 @@ def pressAnyKeyForMenu():
 
 db_init()
 
-def writeToDB(product_name, product_code, ean, current_stock):
+def writeToDB(product_name, product_code, ean, current_stock, location, supplier, status):
     conn = sqlite3.connect(db_file)
     cursor = conn.cursor()
     
-    # Insert a new product into the database
-    cursor.execute("INSERT INTO products (product_name, product_code, ean, current_stock) VALUES (?, ?, ?, ?)", 
-                   (product_name, product_code, ean, current_stock))
+    # Insert new product the database
+    cursor.execute("INSERT INTO products (product_name, product_code, ean, current_stock, location, supplier, status) VALUES (?, ?, ?, ?, ?)", 
+                   (product_name, product_code, ean, current_stock, location, supplier, status))
     conn.commit()
 
 def menu():
@@ -86,35 +89,36 @@ def run(choice):
 
 def viewStock():
         console_clear()
-        cursor.execute("SELECT id, product_name, product_code, current_stock FROM products")
+        cursor.execute("SELECT id, product_name, product_code, current_stock, location FROM products")
         results = cursor.fetchall()
 
-        # Print header
-        print(f"{'ID':<5} {'Product Name':<30} {'Product Code':<15} {'Current Stock':<15}")
-        print("-" * 70)
+        # header
+        print(f"{'ID':<5} {'Product Name':<30} {'Product Code':<15} {'Current Stock':<15} {"Location":<15}")
+        print("-" * 80)
 
-        # Iterate through the results and print each product in a pretty format
+        # print results
         for row in results:
-            id, product_name, product_code, current_stock = row
-            print(f"{id:<5} {product_name:<30} {product_code:<15} {current_stock:<15}")
+            id, product_name, product_code, current_stock, location = row
+            print(f"{id:<5} {product_name:<30} {product_code:<15} {current_stock:<15} {location:<15}")
         
         print(" ")
         pressAnyKeyForMenu()
 
 
-#picklist
-def generatePicklist():
+def generatePicklist(): #make it remove from stock, and add cancel functionality
     console_clear()
     
     product_quantities = {}
 
-    # Gather product codes and quantities from the user directly within the function
     while True:
-        code = input("Enter product code or EAN (or press Enter to finish, type 'custom' to add a custom product): ").strip()
+        code = input("Enter product code or EAN (or press Enter to generate, type 'custom' to add a custom product, type 'exit' to quit): ").strip()
         if not code:
             break
 
-        if code == 'custom':
+        if code.lower() == "exit":
+            menu()
+
+        if code.lower() == 'custom':
             custom_name = input("Enter custom product name: ")
             while True:
                 try:
@@ -124,7 +128,7 @@ def generatePicklist():
                     print("Invalid quantity. Please enter a valid number.")
             product_quantities[custom_name] = quantity
         else:
-            # Fetch product details from the database
+            # Fetch product details
             cursor.execute("SELECT product_name FROM products WHERE product_code=? OR ean=?", (code, code))
             result = cursor.fetchone()
 
@@ -146,12 +150,12 @@ def generatePicklist():
     products_with_locations = []
     for product_name, quantity in product_quantities.items():
         # Find the product code and location from the database
-        cursor.execute("SELECT product_code FROM products WHERE product_name=?", (product_name,))
-        result = cursor.fetchone()
+        cursor.execute("SELECT product_code, location FROM products WHERE product_name=?", (product_name,))
+        result = cursor.fetchall()
 
         if result:
             product_code = result[0]
-            location = "Unknown"  # Assuming no location field in DB, adjust if needed
+            location = result[1]  # Assuming no location field in DB, adjust if needed
             products_with_locations.append((product_name, quantity, location))
 
     # Sort products based on storage locations
@@ -293,16 +297,48 @@ def newProduct():
     np_pcode = input("Product code: ")
     np_ean = input("Product EAN (0 = no EAN): ")
     np_currentstock = input("Current product stock: ")
-    writeToDB(np_pname, np_pcode, np_ean, np_currentstock)
+    np_location = input("Location (press enter for no location): ")
+    np_supplier = input("Product supplier (press enter for no supplier): ")
+    status = input("Product status (A = Active, I = Inactive. this can be further specified later): ")
+    if status.lower() == "A":
+        np_status = "Active"
+    elif status.lower() == "I":
+        np_status = "Inactive"
+    else:
+        np_status = status
+
+    writeToDB(np_pname, np_pcode, np_ean, np_currentstock, np_location, np_supplier, np_status)
     print(f"{np_pname} has been successfully added to StockFox")
-    print(f"Stockfox entry: Name: {np_pname}, Code: {np_pcode}, EAN: {np_ean}, Stock: {np_currentstock}")
+    print(f"Stockfox entry: Name: {np_pname}, Code: {np_pcode}, EAN: {np_ean}, Stock: {np_currentstock}, Location: {np_location}, Supplier: {np_supplier}, Status: {np_status}")
     print(" ")
     pressAnyKeyForMenu()
 
 def removeProduct():
     # add confirm
     console_clear()
-    rp_pcode = input("Enter the product code or EAN of the product you want to delete:")
+    rp_pcode = input("Enter the product code or EAN of the product you want to delete: ")
+
+    #wipe db function:
+    if rp_pcode.lower() == "drop table":
+        the_choice = input("Are you sure? This action can NOT be undone! (Y/N) ")
+        if the_choice.lower() == "y":
+            print(" ")
+            the_second_choice = input("This will quite literally remove everything. are you SURE you want to do this? (Y/N) ")
+            if the_second_choice.lower() == "y":
+                print(" ")
+                the_last_choice = input("To confirm, please write 'I am fully aware this will delete the database' ")
+                if the_last_choice.lower() == "i am fully aware this will delete the database":
+                    cursor.execute("DROP TABLE products")
+                    print("Table dropped. This action requires a full restart of Stockfox. Please relaunch the program.")
+                    conn.commit()
+                    exit()
+
+                else:
+                    removeProduct()
+            else:
+                removeProduct()
+        else:
+            removeProduct()
 
     if rp_pcode.isdigit():
         cursor.execute("SELECT product_name FROM products WHERE ean=?", (rp_pcode,))
@@ -314,6 +350,8 @@ def removeProduct():
                 cursor.execute("DELETE FROM products WHERE ean=?", (rp_pcode,))
         else:
             print("Product not found.")
+            time.sleep(0.5)
+            removeProduct()
     
     elif rp_pcode.isalpha():
         cursor.execute("SELECT product_name FROM products WHERE product_code=?", (rp_pcode,))
