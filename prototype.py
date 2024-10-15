@@ -438,8 +438,6 @@ def editProduct():
                     except:
                         print("Invalid SQL query.")
                 
-                
-
             cursor.execute("SELECT * FROM products WHERE product_code=?", (ep_pcode.upper(),))
             result = cursor.fetchone()
             status = result[7]
@@ -598,4 +596,5 @@ def settings():
     print("Support: stockfox@lienvending.solutions")
     print(" ")
     pressAnyKeyForMenu()
+
 menu()
