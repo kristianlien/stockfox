@@ -4,6 +4,17 @@ import msvcrt
 import sqlite3
 import webbrowser
 
+class bcolors:
+    HEADER = '\033[95m'
+    OKBLUE = '\033[94m'
+    OKCYAN = '\033[96m'
+    OKGREEN = '\033[92m'
+    WARNING = '\033[93m'
+    FAIL = '\033[91m'
+    ENDC = '\033[0m'
+    BOLD = '\033[1m'
+    UNDERLINE = '\033[4m'
+
 from datetime import datetime
 
 db_file = "current_inventory.db"
@@ -43,7 +54,7 @@ def writeToDB(product_name, product_code, ean, current_stock, location, supplier
     cursor = conn.cursor()
     
     # Insert new product the database
-    cursor.execute("INSERT INTO products (product_name, product_code, ean, current_stock, location, supplier, status) VALUES (?, ?, ?, ?, ?)", 
+    cursor.execute("INSERT INTO products (product_name, product_code, ean, current_stock, location, supplier, status) VALUES (?, ?, ?, ?, ?, ?, ?)", 
                    (product_name, product_code, ean, current_stock, location, supplier, status))
     conn.commit()
 
@@ -58,11 +69,12 @@ def menu():
     print(" ")
     print("1. View current stock")
     print("2. Generate picklist")
-    print("3. Update product stock")
-    print("4. Add new stock to system")
+    print("3. Update individual product stock")
+    print("4. Update inventory")
     print("5. Enter new product into system")
-    print("6: Remove product from system")
-    print("7: Settings/information")
+    print("6: Edit products")
+    print("7: Remove product from system")
+    print("8: Settings/information")
     choice = get_keypress()
     run(choice)
 
@@ -78,8 +90,10 @@ def run(choice):
     elif choice == "5":
         newProduct()
     elif choice == "6":
-        removeProduct()
+        editProduct()
     elif choice == "7":
+        removeProduct()
+    elif choice == "8":
         settings()
     else:
         print("Invalid choice")
@@ -88,22 +102,30 @@ def run(choice):
 
 
 def viewStock():
-        console_clear()
-        cursor.execute("SELECT id, product_name, product_code, current_stock, location FROM products")
-        results = cursor.fetchall()
+    console_clear()
+    cursor.execute("SELECT id, product_name, product_code, current_stock, location, status FROM products")
+    results = cursor.fetchall()
 
-        # header
-        print(f"{'ID':<5} {'Product Name':<30} {'Product Code':<15} {'Current Stock':<15} {"Location":<15}")
-        print("-" * 80)
+    # header
+    print(f"{'ID':<5} {'Product Name':<30} {'Product Code':<15} {'Current Stock':<15} {'Location':<15} {'Status':<5}")
+    print("-" * 95)
 
-        # print results
-        for row in results:
-            id, product_name, product_code, current_stock, location = row
-            print(f"{id:<5} {product_name:<30} {product_code:<15} {current_stock:<15} {location:<15}")
+    # print results
+    for row in results:
+        id, product_name, product_code, current_stock, location, status = row
         
-        print(" ")
-        pressAnyKeyForMenu()
+        #status color
+        if status.lower() == "active":
+            status_display = bcolors.OKGREEN + "██ ACTIVE" + bcolors.ENDC
+        elif status.lower() == "inactive":
+            status_display = bcolors.FAIL + "██ INACTIVE" + bcolors.ENDC
+        else:
+            status_display = status
 
+        print(f"{id:<5} {product_name:<30} {product_code:<15} {current_stock:<15} {location:<15} {status_display:<5}")
+    
+    print(" ")
+    pressAnyKeyForMenu()
 
 def generatePicklist(): #make it remove from stock, and add cancel functionality
     console_clear()
@@ -129,14 +151,15 @@ def generatePicklist(): #make it remove from stock, and add cancel functionality
             product_quantities[custom_name] = quantity
         else:
             # Fetch product details
-            cursor.execute("SELECT product_name FROM products WHERE product_code=? OR ean=?", (code, code))
+            cursor.execute("SELECT product_name FROM products WHERE product_code=? OR ean=?", (code.upper(), code))
             result = cursor.fetchone()
-
+            cursor.execute("SELECT current_stock FROM products WHERE product_code=? OR ean=?", (code.upper(), code))
+            stock = cursor.fetchone()
             if result:
                 product_name = result[0]
                 while True:
                     try:
-                        quantity = float(input(f"Enter quantity for {product_name}: "))
+                        quantity = float(input(f"Enter quantity for {product_name} (Current inventory quantity: {stock[0]}): "))
                         break
                     except ValueError:
                         print("Invalid quantity. Please enter a valid number.")
@@ -149,14 +172,16 @@ def generatePicklist(): #make it remove from stock, and add cancel functionality
     # Create a list of products with their locations
     products_with_locations = []
     for product_name, quantity in product_quantities.items():
-        # Find the product code and location from the database
+    # Find the product code and location from the database
         cursor.execute("SELECT product_code, location FROM products WHERE product_name=?", (product_name,))
-        result = cursor.fetchall()
+        result = cursor.fetchone()  # Use fetchone to get a single result
 
-        if result:
-            product_code = result[0]
-            location = result[1]  # Assuming no location field in DB, adjust if needed
-            products_with_locations.append((product_name, quantity, location))
+    if result:
+        product_code, location = result  # Unpack the tuple into product_code and location
+        products_with_locations.append((product_name, quantity, location))
+    else:
+        print(f"Product {product_name} not found in the database.")
+
 
     # Sort products based on storage locations
     products_with_locations.sort(key=lambda item: item[2])  # Sort by location
@@ -210,10 +235,15 @@ def generatePicklist(): #make it remove from stock, and add cancel functionality
     absolute_path = os.path.abspath(html_file)
     webbrowser.open(f"file://{absolute_path}")
 
-    pressAnyKeyForMenu()
+    removeFromDB_choice = input("Do you want to update the inventory stock for the products in the picklist? (Y/N)")
+
+    if removeFromDB_choice.lower() == "y":
+        print("WIP")
+
 
 
 def updateStock():
+    console_clear()
     print("Update stock:")
     print(" ")
     while True:
@@ -293,16 +323,32 @@ def addStock():
 
 def newProduct():
     console_clear()
+    print("New product (Type 'exit' to cancel):")
+    print(" ")
     np_pname = input("Product name: ")
+    if np_pname.lower() == "exit":
+        menu()
     np_pcode = input("Product code: ")
-    np_ean = input("Product EAN (0 = no EAN): ")
+    if np_pcode.lower() == "exit":
+        menu()
+    np_ean = input("Product EAN (Enter = no EAN): ")
+    if np_ean.lower() == "exit":
+        menu()
     np_currentstock = input("Current product stock: ")
+    if np_currentstock.lower() == "exit":
+        menu()
     np_location = input("Location (press enter for no location): ")
+    if np_location.lower() == "exit":
+        menu()
     np_supplier = input("Product supplier (press enter for no supplier): ")
+    if np_supplier.lower() == "exit":
+        menu()
     status = input("Product status (A = Active, I = Inactive. this can be further specified later): ")
-    if status.lower() == "A":
+    if status.lower() == "exit":
+        menu()
+    elif status.lower() == "a":
         np_status = "Active"
-    elif status.lower() == "I":
+    elif status.lower() == "i":
         np_status = "Inactive"
     else:
         np_status = status
@@ -313,13 +359,71 @@ def newProduct():
     print(" ")
     pressAnyKeyForMenu()
 
-def removeProduct():
-    # add confirm
+def editProduct():
     console_clear()
-    rp_pcode = input("Enter the product code or EAN of the product you want to delete: ")
+    ep_pcode = input("Please input the product code for the product you want to edit (or press Enter to exit): ")
+    danger = "drop"
+
+
+
+    if ep_pcode.lower() == "sql":
+        print(" ")
+        print(bcolors.WARNING + "WARNING: Custom SQL commands can be very dangerous. Only do this if you know what you're doing!" + bcolors.ENDC)
+        while True:    
+            custom_sql = input("SQL command (type 'exit' to go back to menu): ")
+            if custom_sql.lower() == "exit":
+                menu()
+            
+            if danger in custom_sql.lower():
+                danger_conf = input(f"Are you sure you want to run the SQL command '{custom_sql}'? (Y/N) ")
+                if danger_conf.lower() != "y":
+                    print("Command cancelled.")
+                    continue
+                    
+            try:
+                cursor.execute(custom_sql)
+                result = cursor.fetchall()
+                print(result)
+            
+            except:
+                print("Invalid SQL query.")
+        
+        
+
+    cursor.execute("SELECT * FROM products WHERE product_code=?", (ep_pcode.upper(),))
+    result = cursor.fetchone()
+    status = result[7]
+    if result:
+        if status.lower() == "active":
+            status_display = bcolors.OKGREEN + "██ ACTIVE" + bcolors.ENDC
+        elif status.lower() == "inactive":
+            status_display = bcolors.FAIL + "██ INACTIVE" + bcolors.ENDC
+        else:
+            status_display = status
+        print(" ")
+        print(f"1. Product name: {result[1]}")
+        print(f"2. Product code: {result[2]}")
+        print(f"3. Product EAN: {result[3]}")
+        print(f"4. Product location: {result[5]}") #stock is not displayed here, skipping [4]
+        print(f"5. Product supplier: {result[6]}")
+        print(f"6. Product status: {status_display}")
+        print(" ")
+        entryEdit = input("Enter which line you want to edit: ")
+        if entryEdit == 1:
+            ep_name = input("Please enter new product name: ")
+
+
+def removeProduct():
+    console_clear()
+    print("Remove product:")
+    print(" ")
+    rp_pcode = input("Enter the product code or EAN of the product you want to delete (or press Enter to cancel): ")
+
+    if rp_pcode == "":
+        menu()
 
     #wipe db function:
-    if rp_pcode.lower() == "drop table":
+    elif rp_pcode.lower() == "drop table":
         the_choice = input("Are you sure? This action can NOT be undone! (Y/N) ")
         if the_choice.lower() == "y":
             print(" ")
@@ -340,7 +444,7 @@ def removeProduct():
         else:
             removeProduct()
 
-    if rp_pcode.isdigit():
+    elif rp_pcode.isdigit():
         cursor.execute("SELECT product_name FROM products WHERE ean=?", (rp_pcode,))
         result = cursor.fetchone()
         
@@ -367,6 +471,8 @@ def removeProduct():
                 menu()
         else:
             print("Product not found.")
+            time.sleep(0.5)
+            removeProduct()
     
     else:
         menu()
