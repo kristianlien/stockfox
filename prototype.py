@@ -3,6 +3,67 @@ import time
 import msvcrt
 import sqlite3
 import webbrowser
+from barcode.writer import ImageWriter
+from PIL import Image
+import numpy as np
+
+def image_to_ascii(image_path):
+    """Convert an image to ASCII characters."""
+    chars = np.asarray(list(' .:-=+*#%@'))
+    img = Image.open(image_path).convert('L')  # Convert to grayscale
+    img = img.resize((100, 30))  # Resize for terminal display
+
+    # Normalize pixel values to range between 0 and 1, and map to characters
+    pixels = np.array(img) / 255
+    ascii_art = chars[(pixels * (len(chars) - 1)).astype(int)]
+
+    # Create the ASCII string to print
+    ascii_str = "\n".join("".join(row) for row in ascii_art)
+    print(ascii_str)
+
+def generate_barcode_to_terminal(code):
+    for i in range(8):
+        code = str(code)
+        
+        # Ensure the input code is exactly 13 digits
+        if len(code) != 13 or not code.isdigit():
+            raise ValueError("EAN-13 barcode requires exactly 13 digits.")
+        
+        # EAN-13 encoding for each digit (0-9)
+        # Patterns represent the left side of the EAN-13 barcode
+        encoding = {
+            '0': '█  █    ',
+            '1': '█   █   ',
+            '2': '█   █  █',
+            '3': '█   █ █ ',
+            '4': '█    ██ ',
+            '5': '█    █ █',
+            '6': '█    █  █',
+            '7': '  █ █   █',
+            '8': '  █  █  █',
+            '9': '  █   █ █'
+        }
+
+        # Start with the left guard pattern
+        barcode_str = '█'  # Start guard bar
+
+        # Add the encoded digits for the left side of the barcode (digits 1-6)
+        for digit in code[:6]:
+            barcode_str += encoding[digit]
+
+        # Add the center guard pattern
+        barcode_str += '█'  # Center guard bar
+
+        # Add the encoded digits for the right side of the barcode (digits 7-12)
+        for digit in code[6:]:
+            barcode_str += encoding[digit]
+
+        # End with the right guard pattern
+        barcode_str += '█'  # End guard bar
+
+        # Print the barcode made of blocks
+        print(barcode_str)
+
 
 class bcolors:
     HEADER = '\033[95m'
@@ -66,15 +127,18 @@ def menu():
     print("  \___ \ | __| / _ \  / __|| |/ /|  __|/ _ \\ \/ /")
     print("  ____) || |_ | (_) || (__ |   < | |  | (_) |>  < ")
     print(" |_____/  \__| \___/  \___||_|\_\|_|   \___//_/\_\ ")
-    print(" ")
+    print("")
     print("1. View current stock")
     print("2. Generate picklist")
     print("3. Update individual product stock")
-    print("4. Update inventory")
-    print("5. Enter new product into system")
+    print("4. Update/add inventory from new shipment")
+    print("5. Insert new product into system")
     print("6: Edit products")
-    print("7: Remove product from system")
-    print("8: Settings/information")
+    print("7: View product details")
+    print("8: Remove product from system")
+    print("9: Settings/information")
+    print("")
+    print("0: Quit StockFox")
     choice = get_keypress()
     run(choice)
 
@@ -92,9 +156,19 @@ def run(choice):
     elif choice == "6":
         editProduct()
     elif choice == "7":
-        removeProduct()
+        console_clear()
+        viewProductDetails()
     elif choice == "8":
+        removeProduct()
+    elif choice == "9":
         settings()
+    elif choice == "0":
+        print("Are you sure you want to quit? (Y/N): ")
+        exit_confirm = get_keypress()
+        if exit_confirm.lower() == "y":
+            exit()
+        else:
+            menu()
     else:
         print("Invalid choice")
         time.sleep(0.5)
@@ -136,7 +210,7 @@ def viewStock():
 
         print(f"{product_name:<30} {product_code:<15} {current_stock:<15} {location:<15} {status_display:<5}")
     
-    print(" ")
+    print("")
     pressAnyKeyForMenu()
 
 
@@ -146,21 +220,20 @@ def generatePicklist():  # make it remove from stock, and add cancel functionali
     product_quantities = {}
 
     while True:
-        code = input("Enter product code or EAN (or press Enter to generate, type 'custom' to add a custom product, type 'exit' to quit): ").strip()
+        code = input("Enter product code or EAN (or press Enter to generate, type 'custom' to add custom product, type 'exit' to quit): ").strip()
         
-        # Check for exit condition
+        # check for exit condition
         if code.lower() == "exit":
             if not product_quantities:  # Check if no products have been added
-                print("Exiting without generating a picklist.")
-                return  # Exit the function
+                menu()
             else:
                 # If products were added, ask for confirmation
                 confirmation = input("You have unsaved products in your picklist. Are you sure you want to exit? (Y/N): ").strip().lower()
-                if confirmation == "y":
-                    return  # Exit the function
+                if confirmation.lower() == "y":
+                    menu()
 
         if code == "":
-            break  # Break the loop to generate the picklist
+            break
 
         if code.lower() == 'custom':
             custom_name = input("Enter custom product name: ")
@@ -292,10 +365,12 @@ def generatePicklist():  # make it remove from stock, and add cancel functionali
 def updateStock():
     console_clear()
     print("Update stock:")
-    print(" ")
+    print("")
     while True:
         us_pcode = input("Enter product code or scan barcode (or press Enter to save/exit): ")
-        if us_pcode.isdigit():
+        if us_pcode == "":
+            menu()
+        elif us_pcode.isdigit():
             cursor.execute("SELECT product_name FROM products WHERE ean=?", (us_pcode,))
             result = cursor.fetchone() 
             if result:
@@ -310,14 +385,14 @@ def updateStock():
                 time.sleep(0.5)
                 updateStock()
 
-        elif us_pcode.isalpha():
+        else:
             cursor.execute("SELECT product_name FROM products WHERE product_code=?", (us_pcode,))
             result = cursor.fetchone() 
             if result:
                 cursor.execute("SELECT current_stock FROM products WHERE product_code=?", (us_pcode,))
                 current_quantity = cursor.fetchone() 
                 product_name = result[0]
-                us_quantity = input(f"Enter quantity of {product_name} (current quantity: {current_quantity}): ")
+                us_quantity = input(f"Enter quantity of {product_name} (current quantity: {current_quantity[0]}): ")
                 cursor.execute("UPDATE products SET current_stock = ? WHERE product_code=?", 
                                (us_quantity, us_pcode))
             else:
@@ -325,8 +400,6 @@ def updateStock():
                 time.sleep(0.5)
                 updateStock()
 
-        else:
-            menu()
             
 
             
@@ -335,10 +408,12 @@ def updateStock():
 def addStock():
     console_clear()
     print("Add stock:")
-    print(" ")
+    print("")
     while True: 
         as_pcode = input("Enter product code or scan barcode (or press Enter to save/exit): ")
-        if as_pcode.isdigit():
+        if as_pcode == "":
+            menu()
+        elif as_pcode.isdigit():
             cursor.execute("SELECT product_name FROM products WHERE ean=?", (as_pcode,))
             result = cursor.fetchone() 
             if result:
@@ -348,7 +423,9 @@ def addStock():
                                (as_quantity, as_pcode))
             else:
                 print("Product not found.")
-        elif as_pcode.isalpha():
+                time.sleep(0.5)
+                addStock()
+        else:
             cursor.execute("SELECT product_name FROM products WHERE product_code=?", (as_pcode,))
             result = cursor.fetchone()
             if result:
@@ -360,18 +437,12 @@ def addStock():
                 print("Product not found.")
                 time.sleep(0.5)
                 addStock()
-        else:
-            menu()
-            
-    
-
-
 
 
 def newProduct():
     console_clear()
     print("New product (Type 'exit' to cancel):")
-    print(" ")
+    print("")
     np_pname = input("Product name: ")
     if np_pname.lower() == "exit":
         menu()
@@ -403,7 +474,7 @@ def newProduct():
     writeToDB(np_pname, np_pcode, np_ean, np_currentstock, np_location, np_supplier, np_status)
     print(f"{np_pname} has been successfully added to StockFox")
     print(f"Stockfox entry: Name: {np_pname}, Code: {np_pcode}, EAN: {np_ean}, Stock: {np_currentstock}, Location: {np_location}, Supplier: {np_supplier}, Status: {np_status}")
-    print(" ")
+    print("")
     pressAnyKeyForMenu()
 
 def editProduct():
@@ -417,7 +488,7 @@ def editProduct():
                 menu()
 
             if ep_pcode.lower() == "sql":
-                print(" ")
+                print("")
                 print(bcolors.WARNING + "WARNING: Custom SQL commands can be very dangerous. Only do this if you know what you're doing!" + bcolors.ENDC)
                 while True:    
                     custom_sql = input("SQL command (type 'exit' to go back to menu): ")
@@ -448,14 +519,14 @@ def editProduct():
                     status_display = bcolors.FAIL + "██ INACTIVE" + bcolors.ENDC
                 else:
                     status_display = status
-                print(" ")
+                print("")
                 print(f"1. Product name: {result[1]}")
                 print(f"2. Product code: {result[2]}")
                 print(f"3. Product EAN: {result[3]}")
                 print(f"4. Product location: {result[5]}") #stock is not displayed here, skipping [4]
                 print(f"5. Product supplier: {result[6]}")
                 print(f"6. Product status: {status_display}")
-                print(" ")
+                print("")
                 while True:
                     try: 
                         entryEdit = int(input("Enter which line you want to edit (or '0' to exit): "))
@@ -519,10 +590,79 @@ def editProduct():
         except:
             print("Invalid product, try again")
 
+def viewProductDetails():
+    print("View product details:")
+    print("")
+    while True:
+        VPD_code = input("Enter product code or EAN (or press Enter to exit): ")
+        try:
+            if VPD_code == "":
+                menu()
+
+            elif VPD_code.isdigit():
+                cursor.execute("SELECT * FROM products WHERE ean=?", (VPD_code,))
+                result = cursor.fetchall()
+                
+                if result:
+                    status = result[0][7]  # Assuming status is at index 7
+                    if status.lower() == "active":
+                        status_display = bcolors.OKGREEN + "██ ACTIVE" + bcolors.ENDC
+                    elif status.lower() == "inactive":
+                        status_display = bcolors.FAIL + "██ INACTIVE" + bcolors.ENDC
+                    else:
+                        status_display = status
+                    
+                    # Accessing product details safely
+                    print("")
+                    print(f"Product name: {result[0][1]}")  # Access first product
+                    print(f"Product code: {result[0][2]}")
+                    print(f"Product EAN: {result[0][3]}")
+                    print(f"Product location: {result[0][5]}")  # stock is not displayed here, skipping [4]
+                    print(f"Product supplier: {result[0][6]}")
+                    print(f"Product status: {status_display}")
+                    print("")
+                    
+                else:
+                    print("Product not found.")
+                    time.sleep(0.5)
+                    viewProductDetails()
+            
+            else:
+                cursor.execute("SELECT * FROM products WHERE product_code=?", (VPD_code.upper(),))
+                result = cursor.fetchall()
+
+                if result:
+                    status = result[0][7]  # Get status from the first product
+                    if status.lower() == "active":
+                        status_display = bcolors.OKGREEN + "██ ACTIVE" + bcolors.ENDC
+                    elif status.lower() == "inactive":
+                        status_display = bcolors.FAIL + "██ INACTIVE" + bcolors.ENDC
+                    else:
+                        status_display = status
+                    
+                    # Accessing product details safely
+                    print("")
+                    print(f"Product name: {result[0][1]}")
+                    print(f"Product code: {result[0][2]}")
+                    print(f"Product EAN: {result[0][3]}")
+                    print(f"Product location: {result[0][5]}")  # stock is not displayed here, skipping [4]
+                    print(f"Product supplier: {result[0][6]}")
+                    print(f"Product status: {status_display}")
+                    print("")
+                else:
+                    print("Product not found.")
+                    time.sleep(0.5)
+                    viewProductDetails()
+            
+        except Exception as e:
+            print(f"An error occurred: {e}")
+            time.sleep(0.5)
+            viewProductDetails()
+
 def removeProduct():
     console_clear()
     print("Remove product:")
-    print(" ")
+    print("")
     rp_pcode = input("Enter the product code or EAN of the product you want to delete (or press Enter to cancel): ")
 
     if rp_pcode == "":
@@ -532,15 +672,20 @@ def removeProduct():
     elif rp_pcode.lower() == "drop table":
         the_choice = input("Are you sure? This action can NOT be undone! (Y/N) ")
         if the_choice.lower() == "y":
-            print(" ")
+            print("")
             the_second_choice = input("This will quite literally remove everything. are you SURE you want to do this? (Y/N) ")
             if the_second_choice.lower() == "y":
-                print(" ")
+                print("")
                 the_last_choice = input("To confirm, please write 'I am fully aware this will delete the database' ")
                 if the_last_choice.lower() == "i am fully aware this will delete the database":
                     cursor.execute("DROP TABLE products")
-                    print("Table dropped. This action requires a full restart of Stockfox. Please relaunch the program.")
                     conn.commit()
+                    for i in range(5):
+                        console_clear()
+                        print("Table dropped. This action requires a full restart of Stockfox. Please relaunch the program.")
+                        print("")
+                        print(f"Closing Stockfox in {5-i} seconds...")
+                        time.sleep(1)
                     exit()
 
                 else:
@@ -550,41 +695,47 @@ def removeProduct():
         else:
             removeProduct()
 
-    elif rp_pcode.isdigit():
-        cursor.execute("SELECT product_name FROM products WHERE ean=?", (rp_pcode,))
-        result = cursor.fetchone()
-        
-        if result:
-            confirmation_delete = input(f"Are you sure you want to delete {result[0]}? (Y/N): ")
-            if confirmation_delete.lower() == "y":
-                cursor.execute("DELETE FROM products WHERE ean=?", (rp_pcode,))
-                print("Product deleted")
-        else:
-            print("Product not found.")
-            time.sleep(0.5)
-            removeProduct()
-    
-    elif rp_pcode.isalpha():
-        cursor.execute("SELECT product_name FROM products WHERE product_code=?", (rp_pcode,))
-        result = cursor.fetchone()
+    try:
+        if rp_pcode == "":
+            menu()
 
-        if result:
-            confirmation_delete = input(f"Are you sure you want to delete {result[0]}? (Y/N): ")
-            if confirmation_delete.lower() == "y":
-                cursor.execute("DELETE FROM products WHERE product_code=?", (rp_pcode,))
-                console_clear()
-                print(f"{result[0]} was deleted")
+        elif rp_pcode.isdigit():
+            cursor.execute("SELECT product_name FROM products WHERE ean=?", (rp_pcode,))
+            result = cursor.fetchone()
+            
+            if result:
+                confirmation_delete = input(f"Are you sure you want to delete {result[0]}? (Y/N): ")
+                if confirmation_delete.lower() == "y":
+                    cursor.execute("DELETE FROM products WHERE ean=?", (rp_pcode,))
+                    print("Product deleted")
+                    conn.commit()  # Commit after delete
+            else:
+                print("Product not found.")
                 time.sleep(0.5)
-                menu()
+                removeProduct()
+        
         else:
-            print("Product not found.")
-            time.sleep(0.5)
-            removeProduct()
-    
-    else:
-        menu()
+            cursor.execute("SELECT product_name FROM products WHERE product_code=?", (rp_pcode.upper(),))
+            result = cursor.fetchone()
 
-    conn.commit()
+            if result:
+                confirmation_delete = input(f"Are you sure you want to delete {result[0]}? (Y/N): ")
+                if confirmation_delete.lower() == "y":
+                    cursor.execute("DELETE FROM products WHERE product_code=?", (rp_pcode.upper(),))
+                    print(f"{result[0]} was deleted")
+                    conn.commit()  # Commit after delete
+                    time.sleep(0.5)
+                    menu()
+                else:
+                    removeProduct()
+            else:
+                print("Product not found.")
+                time.sleep(0.5)
+                removeProduct()
+        
+    except Exception as e:
+        print(f"An error occurred: {e}")
+
 
 def settings():
     console_clear()
@@ -594,7 +745,7 @@ def settings():
     print("Made in Norway ♥")
     print("")
     print("Support: stockfox@lienvending.solutions")
-    print(" ")
+    print("")
     pressAnyKeyForMenu()
 
 menu()
