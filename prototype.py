@@ -7,62 +7,42 @@ from barcode.writer import ImageWriter
 from PIL import Image
 import numpy as np
 
-def image_to_ascii(image_path):
-    """Convert an image to ASCII characters."""
-    chars = np.asarray(list(' .:-=+*#%@'))
-    img = Image.open(image_path).convert('L')  # Convert to grayscale
-    img = img.resize((100, 30))  # Resize for terminal display
-
-    # Normalize pixel values to range between 0 and 1, and map to characters
-    pixels = np.array(img) / 255
-    ascii_art = chars[(pixels * (len(chars) - 1)).astype(int)]
-
-    # Create the ASCII string to print
-    ascii_str = "\n".join("".join(row) for row in ascii_art)
-    print(ascii_str)
-
 def generate_barcode_to_terminal(code):
-    for i in range(8):
-        code = str(code)
-        
-        # Ensure the input code is exactly 13 digits
-        if len(code) != 13 or not code.isdigit():
-            raise ValueError("EAN-13 barcode requires exactly 13 digits.")
-        
-        # EAN-13 encoding for each digit (0-9)
-        # Patterns represent the left side of the EAN-13 barcode
-        encoding = {
-            '0': '█  █    ',
-            '1': '█   █   ',
-            '2': '█   █  █',
-            '3': '█   █ █ ',
-            '4': '█    ██ ',
-            '5': '█    █ █',
-            '6': '█    █  █',
-            '7': '  █ █   █',
-            '8': '  █  █  █',
-            '9': '  █   █ █'
-        }
+    code = str(code)  # Convert input to string if it's not already
+    
+    # Encoding for each digit (0-9)
+    encoding = {
+        '0': '█  █    ',
+        '1': '█   █   ',
+        '2': '█   █  █',
+        '3': '█   █ █ ',
+        '4': '█    ██ ',
+        '5': '█    █ █',
+        '6': '█    █  █',
+        '7': '  █ █   █',
+        '8': '  █  █  █',
+        '9': '  █   █ █'
+    }
 
-        # Start with the left guard pattern
-        barcode_str = '█'  # Start guard bar
+    # Start with the left guard pattern (as normal)
+    barcode_str = '█'  # Start guard bar
 
-        # Add the encoded digits for the left side of the barcode (digits 1-6)
-        for digit in code[:6]:
+    # Loop through each digit in the input code and translate it
+    for digit in code:
+        if digit in encoding:
             barcode_str += encoding[digit]
+        else:
+            raise ValueError(f"Invalid character '{digit}' in the input. Only digits 0-9 are allowed.")
 
-        # Add the center guard pattern
-        barcode_str += '█'  # Center guard bar
+    # End with the right guard pattern
+    barcode_str += '█'  # End guard bar
 
-        # Add the encoded digits for the right side of the barcode (digits 7-12)
-        for digit in code[6:]:
-            barcode_str += encoding[digit]
-
-        # End with the right guard pattern
-        barcode_str += '█'  # End guard bar
-
-        # Print the barcode made of blocks
+    # Print the barcode multiple times without inverting
+    for i in range(8):  # Adjust the range to display multiple lines if needed
         print(barcode_str)
+
+
+
 
 
 class bcolors:
@@ -482,7 +462,7 @@ def editProduct():
         try:  
             console_clear()
             ep_pcode = input("Please input the product code for the product you want to edit (or press Enter to exit): ")
-            danger = "drop"
+            danger = "drop" #more flags can be added if required
 
             if ep_pcode == "":
                 menu()
@@ -621,6 +601,8 @@ def viewProductDetails():
                     print(f"Product supplier: {result[0][6]}")
                     print(f"Product status: {status_display}")
                     print("")
+                    print("Barcode:")
+                    generate_barcode_to_terminal(result[3])
                     
                 else:
                     print("Product not found.")
@@ -639,7 +621,7 @@ def viewProductDetails():
                         status_display = bcolors.FAIL + "██ INACTIVE" + bcolors.ENDC
                     else:
                         status_display = status
-                    
+                    barcode = int(result[3])
                     # Accessing product details safely
                     print("")
                     print(f"Product name: {result[0][1]}")
@@ -649,6 +631,9 @@ def viewProductDetails():
                     print(f"Product supplier: {result[0][6]}")
                     print(f"Product status: {status_display}")
                     print("")
+                    print("Barcode:")
+                    print(barcode)
+                    generate_barcode_to_terminal(barcode)
                 else:
                     print("Product not found.")
                     time.sleep(0.5)
@@ -741,7 +726,7 @@ def settings():
     console_clear()
     print("---------- StockFox ----------")
     print("2024 © Lien Vending Solutions")
-    print("Version Alpha")
+    print("Version Beta 1.0")
     print("Made in Norway ♥")
     print("")
     print("Support: stockfox@lienvending.solutions")
