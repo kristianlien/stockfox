@@ -6,6 +6,9 @@ import webbrowser
 from barcode.writer import ImageWriter
 from PIL import Image
 import numpy as np
+import csv
+from datetime import datetime
+
 
 def generate_barcode_to_terminal(code):
     code = str(code)  # Convert input to string if it's not already
@@ -42,8 +45,63 @@ def generate_barcode_to_terminal(code):
         print(barcode_str)
 
 
+def addEanToProduct():
+    while True:
+        AETP_pcode = input("Input product code (or press Enter to exit): ")
+        if AETP_pcode == "":
+            menu()
+            break
+        
+        AETP_ean = input("Add EAN: ")
+        
+        try:
+            cursor.execute("UPDATE products SET ean=? WHERE product_code=?", (AETP_ean, AETP_pcode))
+            conn.commit()
+            
+            cursor.execute("SELECT product_name, ean FROM products WHERE product_code=?", (AETP_pcode,))
+            check = cursor.fetchone() 
+            
+            if check:
+                print(f"'{check[0]}' updated EAN to: {check[1]}")
+            else:
+                print("Product not found.")
+        
+        except Exception as e:
+            print(f"Error: {e}")
+            time.sleep(0.5)
 
 
+def backup_products_to_csv():
+    # Set the database name
+    db_name = 'current_inventory.db'
+    
+    # Get the current working directory
+    current_directory = os.path.dirname(os.path.abspath(__file__))
+
+    # Get the current date and time for the timestamp
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    csv_file_name = f"export_{timestamp}.csv"
+
+    # Build the full path for the database and the CSV file
+    db_path = os.path.join(current_directory, db_name)
+    csv_file_path = os.path.join(current_directory, csv_file_name)
+
+    # Execute a query to fetch all records from the products table
+    cursor.execute("SELECT * FROM products")
+    rows = cursor.fetchall()
+
+    # Get the column names
+    column_names = [description[0] for description in cursor.description]
+
+    # Write to a CSV file
+    with open(csv_file_path, mode='w', newline='') as csv_file:
+        writer = csv.writer(csv_file)
+        writer.writerow(column_names)  # Write the header
+        writer.writerows(rows)  # Write all rows
+
+    # Close the connection
+    print(f"Backup completed: {csv_file_path}")
+    time.sleep(1)
 
 class bcolors:
     HEADER = '\033[95m'
@@ -76,7 +134,10 @@ def db_init():
                         current_stock INTEGER,
                         location TEXT,
                         supplier TEXT,
-                        status TEXT
+                        status TEXT,
+                        unit_price TEXT,
+                        sale_price TEXT
+
                     )''')
     conn.commit()
 
@@ -90,13 +151,13 @@ def pressAnyKeyForMenu():
 
 db_init()
 
-def writeToDB(product_name, product_code, ean, current_stock, location, supplier, status):
+def writeToDB(product_name, product_code, ean, current_stock, location, supplier, status, unit_price, sale_price):
     conn = sqlite3.connect(db_file)
     cursor = conn.cursor()
     
     # Insert new product the database
-    cursor.execute("INSERT INTO products (product_name, product_code, ean, current_stock, location, supplier, status) VALUES (?, ?, ?, ?, ?, ?, ?)", 
-                   (product_name, product_code.strip(), ean.strip(), current_stock, location, supplier, status))
+    cursor.execute("INSERT INTO products (product_name, product_code, ean, current_stock, location, supplier, status, unit_price, sale_price) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", 
+                   (product_name, product_code.strip(), ean.strip(), current_stock, location, supplier, status, unit_price, sale_price))
     conn.commit()
 
 def menu():
@@ -146,7 +207,9 @@ def run(choice):
         print("Are you sure you want to quit? (Y/N): ")
         exit_confirm = get_keypress()
         if exit_confirm.lower() == "y":
-            exit()
+            conn.commit()
+            while True:
+                exit()
         else:
             menu()
     else:
@@ -157,19 +220,22 @@ def run(choice):
 
 def viewStock():
     console_clear()
-    cursor.execute("SELECT product_name, product_code, current_stock, location, status FROM products")
+    cursor.execute("SELECT product_name, product_code, current_stock, location, status, unit_price FROM products")
     results = cursor.fetchall()
 
-    # Sort results: first by status (active first), then by location
-    results.sort(key=lambda row: (row[4].lower() != "active", row[3].lower()))  # row[4] is status, row[3] is location
+    # Sort results: first by status (active first), then by location, then by stock (lowest first)
+    results.sort(key=lambda row: (row[4].lower() != "active", row[3].lower(), row[2]))  # row[4] is status, row[3] is location, row[2] is current_stock
+    conn.commit()
 
     # header
-    print(f"{'Product Name':<30} {'Product Code':<15} {'Current Stock':<15} {'Location':<15} {'Status':<25}")
+    print(f"{'Product Name':<30} {'Product Code':<15} {'Current Stock':<15} {'Location':<15} {'Status':<15} {'Stock Value':>10}")
     print("-" * 115)
 
+    total_stock_value = 0
+    
     # print results
     for row in results:
-        product_name, product_code, current_stock, location, status = row
+        product_name, product_code, current_stock, location, status, unit_price = row
         
         # Check for low stock
         low_stock_warning = ""
@@ -177,6 +243,8 @@ def viewStock():
             low_stock_warning = " (low stock!)"
         if status.lower() == "inactive":
             low_stock_warning = ""
+
+        current_stock_value = current_stock
 
         current_stock = str(current_stock) + low_stock_warning
 
@@ -188,11 +256,15 @@ def viewStock():
         else:
             status_display = status
 
-        print(f"{product_name:<30} {product_code:<15} {current_stock:<15} {location:<15} {status_display:<5}")
+        stock_value = round(float(current_stock_value) * float(unit_price), 2)  # round stock value to 2 decimal places
+        total_stock_value = round(total_stock_value + stock_value, 2)  # round total stock value to 2 decimal places
+
+        print(f"{product_name:<30} {product_code:<15} {current_stock:<15} {location:<15} {status_display:<24} {stock_value:<15}")
     
     print("")
+    print(f"Total stock value: {total_stock_value}")
+    print(" ")
     pressAnyKeyForMenu()
-
 
 def generatePicklist():  # make it remove from stock, and add cancel functionality
     console_clear()
@@ -347,7 +419,7 @@ def updateStock():
     print("Update stock:")
     print("")
     while True:
-        us_pcode = input("Enter product code or scan barcode (or press Enter to save/exit): ")
+        us_pcode = input("Enter product code or EAN (or press Enter to save/exit): ")
         if us_pcode == "":
             menu()
         elif us_pcode.isdigit():
@@ -360,6 +432,13 @@ def updateStock():
                 us_quantity = input(f"Enter quantity of {product_name} (current quantity: {current_quantity[0]}): ")
                 cursor.execute("UPDATE products SET current_stock = ? WHERE ean=?", 
                                (us_quantity, us_pcode))
+                cursor.execute("SELECT current_stock FROM products WHERE ean=?", (us_pcode,))
+                conn.commit()
+                updatedQuantity = cursor.fetchone()
+                if updatedQuantity:
+                    print(f"{product_name} quantity is now: {updatedQuantity[0]}")
+                else:
+                    print(bcolors.WARNING + "WARNING: There seems to be an issue with the DB. Please double check quantity." + bcolors.ENDC)
             else:
                 print("Product not found.")
                 time.sleep(0.5)
@@ -374,7 +453,14 @@ def updateStock():
                 product_name = result[0]
                 us_quantity = input(f"Enter quantity of {product_name} (current quantity: {current_quantity[0]}): ")
                 cursor.execute("UPDATE products SET current_stock = ? WHERE product_code=?", 
-                               (us_quantity, us_pcode))
+                (us_quantity, us_pcode))
+                cursor.execute("SELECT current_stock FROM products WHERE product_code=?", (us_pcode,))
+                updatedQuantity = cursor.fetchone()
+                if updatedQuantity:
+                    print(f"{product_name} quantity is now: {updatedQuantity[0]}")
+                else:
+                    print(bcolors.WARNING + "WARNING: There seems to be an issue with the DB. Please double check quantity." + bcolors.ENDC)
+
             else:
                 print("Product not found.")
                 time.sleep(0.5)
@@ -413,6 +499,7 @@ def addStock():
                 as_quantity = input(f"Enter quantity of {product_name} to be added to inventory: ")
                 cursor.execute("UPDATE products SET current_stock = current_stock + ? WHERE product_code=?", 
                                (as_quantity, as_pcode))
+                conn.commit()
             else:
                 print("Product not found.")
                 time.sleep(0.5)
@@ -429,6 +516,10 @@ def newProduct():
     np_pcode = input("Product code: ")
     if np_pcode.lower() == "exit":
         menu()
+    elif not np_pcode.isalpha():
+        print("Invalid charater (A-Z only)")
+        time.sleep(0.5)
+        newProduct()
     np_ean = input("Product EAN (Enter = no EAN): ")
     if np_ean.lower() == "exit":
         menu()
@@ -441,6 +532,12 @@ def newProduct():
     np_supplier = input("Product supplier (press enter for no supplier): ")
     if np_supplier.lower() == "exit":
         menu()
+    np_unit_price = input("Unit price (from supplier): ")
+    if np_unit_price.lower() == "exit":
+        menu()
+    np_sale_price = input("Sale price: ")
+    if np_sale_price.lower() == "exit":
+        menu()  
     status = input("Product status (A = Active, I = Inactive. this can be further specified later): ")
     if status.lower() == "exit":
         menu()
@@ -450,18 +547,28 @@ def newProduct():
         np_status = "Inactive"
     else:
         np_status = status
-
-    writeToDB(np_pname, np_pcode, np_ean, np_currentstock, np_location, np_supplier, np_status)
-    print(f"{np_pname} has been successfully added to StockFox")
-    print(f"Stockfox entry: Name: {np_pname}, Code: {np_pcode}, EAN: {np_ean}, Stock: {np_currentstock}, Location: {np_location}, Supplier: {np_supplier}, Status: {np_status}")
-    print("")
-    pressAnyKeyForMenu()
+    cursor.execute("SELECT * FROM products WHERE product_code=?", (np_pcode,))
+    check = cursor.fetchall
+    if check:
+        print(f"Error: Product with product code {np_pcode} already exists")
+        time.sleep(0.8)
+        newProduct()
+    else:
+        writeToDB(np_pname, np_pcode, np_ean, np_currentstock, np_location, np_supplier, np_status, np_unit_price, np_sale_price)
+        print(f"{np_pname} has been successfully added to StockFox")
+        print("")
+        print("Stockfox entry:")
+        print(f"Name: {np_pname}, Code: {np_pcode}, EAN: {np_ean}, Stock: {np_currentstock}, Location: {np_location}")
+        print(f"Supplier: {np_supplier}, Unit Price: {np_unit_price}, Sale Price: {np_sale_price} Status: {np_status}")
+        print("")
+        pressAnyKeyForMenu()
 
 def editProduct():
     while True:
         try:  
             console_clear()
-            ep_pcode = input("Please input the product code for the product you want to edit (or press Enter to exit): ")
+            ep_pcode = input("Please input the product code or EAN for the product you want to edit (or press Enter to exit): ")
+
             danger = "drop" #more flags can be added if required
 
             if ep_pcode == "":
@@ -488,85 +595,189 @@ def editProduct():
                     
                     except:
                         print("Invalid SQL query.")
+
+            elif ep_pcode.lower() == "add ean":
+                addEanToProduct()
                 
-            cursor.execute("SELECT * FROM products WHERE product_code=?", (ep_pcode.upper(),))
-            result = cursor.fetchone()
-            status = result[7]
-            if result:
-                if status.lower() == "active":
-                    status_display = bcolors.OKGREEN + "██ ACTIVE" + bcolors.ENDC
-                elif status.lower() == "inactive":
-                    status_display = bcolors.FAIL + "██ INACTIVE" + bcolors.ENDC
-                else:
-                    status_display = status
-                print("")
-                print(f"1. Product name: {result[1]}")
-                print(f"2. Product code: {result[2]}")
-                print(f"3. Product EAN: {result[3]}")
-                print(f"4. Product location: {result[5]}") #stock is not displayed here, skipping [4]
-                print(f"5. Product supplier: {result[6]}")
-                print(f"6. Product status: {status_display}")
-                print("")
-                while True:
-                    try: 
-                        entryEdit = int(input("Enter which line you want to edit (or '0' to exit): "))
-                        break
+            elif ep_pcode.lower() == "export" or ep_pcode.lower() == "export db" or ep_pcode.lower() == "backup":
+                backup_products_to_csv()
 
-                    except ValueError:
-                        print("Please input a number")
-                        continue
-
-                if entryEdit == 0:
-                    editProduct()
-
-                if entryEdit == 1:
-                    new_name = input(f"Please enter new product name (current: {result[1]}): ")
-                    cursor.execute("UPDATE products SET product_name=? WHERE product_code=?", (new_name, ep_pcode.upper()))
-                    print(f"Product name changed to {new_name} successfully")
-                    time.sleep(1)
-                    editProduct()
-                elif entryEdit == 2:
-                    new_pcode = input(f"Please enter new product code (Current: {result[2]}): ")
-                    cursor.execute("UPDATE products SET product_code=? WHERE product_code=?", (new_pcode, ep_pcode.upper()))
-                    print(f"Product code changed to {new_pcode} successfully")
-                    time.sleep(1)
-                    editProduct()
-                elif entryEdit == 3:
-                    new_ean = input(f"Please enter new product EAN (Current: {result[3]}): ")
-                    cursor.execute("UPDATE products SET ean=? WHERE product_code=?", (new_ean, ep_pcode.upper()))
-                    print(f"Product EAN changed to {new_ean} successfully")
-                    time.sleep(1)
-                    editProduct()
-                elif entryEdit == 4:
-                    new_location = input(f"Please enter new product location (Current: {result[5]}): ")
-                    cursor.execute("UPDATE products SET location=? WHERE product_code=?", (new_location, ep_pcode.upper()))
-                    print(f"Product location changed to {new_location} successfully")
-                    time.sleep(1)
-                    editProduct()
-                elif entryEdit == 5:
-                    new_supplier = input(f"Please enter new product supplier (Current: {result[6]}): ")
-                    cursor.execute("UPDATE products SET supplier=? WHERE product_code=?", (new_supplier, ep_pcode.upper()))
-                    print(f"Product supplier changed to {new_supplier} successfully")
-                    time.sleep(1)
-                    editProduct()
-                elif entryEdit == 6:
-                    ep_status = input(f"Please enter new product EAN (Current: {status_display} | A = Active, I = Inactive or type custom status): ")
-                    if ep_status.lower() == "a":
-                        new_status = "Active"
-                    elif ep_status.lower() == "i":
-                        new_status = "Inactive"
+            elif ep_pcode == "":
+                menu()
+            
+            elif ep_pcode.isdigit():
+                cursor.execute("SELECT * FROM products WHERE ean=?", (ep_pcode.upper(),))
+                result = cursor.fetchone()
+                status = result[7]
+                if result:
+                    if status.lower() == "active":
+                        status_display = bcolors.OKGREEN + "██ ACTIVE" + bcolors.ENDC
+                    elif status.lower() == "inactive":
+                        status_display = bcolors.FAIL + "██ INACTIVE" + bcolors.ENDC
                     else:
-                        new_status = ep_status
-                    cursor.execute("UPDATE products SET status=? WHERE product_code=?", (new_status, ep_pcode.upper()))
-                    if new_status.lower() == "active":
-                        status_display_confirmation = bcolors.OKGREEN + "██ ACTIVE" + bcolors.ENDC
-                    elif new_status.lower() == "inactive":
-                        status_display_confirmation = bcolors.FAIL + "██ INACTIVE" + bcolors.ENDC
+                        status_display = status
+                    print("")
+                    print(f"1. Product name: {result[1]}")
+                    print(f"2. Product code: {result[2]}")
+                    print(f"3. Product EAN: {result[3]}")
+                    print(f"4. Product location: {result[5]}") #stock is not displayed here, skipping [4]
+                    print(f"5. Product supplier: {result[6]}")
+                    print(f"6. Product status: {status_display}")
+                    print("")
+                    while True:
+                        try: 
+                            entryEdit = int(input("Enter which line you want to edit (or '0' to exit): "))
+                            break
+
+                        except ValueError:
+                            print("Please input a number")
+                            continue
+
+                    if entryEdit == 0:
+                        editProduct()
+
+                    if entryEdit == 1:
+                        new_name = input(f"Please enter new product name (current: {result[1]}): ")
+                        cursor.execute("UPDATE products SET product_name=? WHERE ean=?", (new_name, ep_pcode.upper()))
+                        conn.commit()
+                        
+                        print(f"Product name changed to {new_name} successfully")
+                        time.sleep(1)
+                        editProduct()
+                    elif entryEdit == 2:
+                        new_pcode = input(f"Please enter new product code (Current: {result[2]}): ")
+                        cursor.execute("UPDATE products SET product_code=? WHERE ean=?", (new_pcode, ep_pcode.upper()))
+                        conn.commit() 
+                        print(f"Product code changed to {new_pcode} successfully")
+                        time.sleep(1)
+                        editProduct()
+                    elif entryEdit == 3:
+                        new_ean = input(f"Please enter new product EAN (Current: {result[3]}): ")
+                        cursor.execute("UPDATE products SET ean=? WHERE ean=?", (new_ean, ep_pcode.upper()))
+                        conn.commit() 
+                        conn.commit()
+                        print(f"Product EAN changed to {new_ean} successfully")
+                        time.sleep(1)
+                        editProduct()
+                    elif entryEdit == 4:
+                        new_location = input(f"Please enter new product location (Current: {result[5]}): ")
+                        cursor.execute("UPDATE products SET location=? WHERE ean=?", (new_location, ep_pcode.upper()))
+                        conn.commit()
+                        print(f"Product location changed to {new_location} successfully")
+                        time.sleep(1)
+                        editProduct()
+                    elif entryEdit == 5:
+                        new_supplier = input(f"Please enter new product supplier (Current: {result[6]}): ")
+                        cursor.execute("UPDATE products SET supplier=? WHERE ean=?", (new_supplier, ep_pcode.upper()))
+                        conn.commit()
+                        conn.commit()
+                        print(f"Product supplier changed to {new_supplier} successfully")
+                        time.sleep(1)
+                        editProduct()
+                    elif entryEdit == 6:
+                        ep_status = input(f"Please enter new product EAN (Current: {status_display} | A = Active, I = Inactive or type custom status): ")
+                        if ep_status.lower() == "a":
+                            new_status = "Active"
+                        elif ep_status.lower() == "i":
+                            new_status = "Inactive"
+                        else:
+                            new_status = ep_status
+                        cursor.execute("UPDATE products SET status=? WHERE ean=?", (new_status, ep_pcode.upper()))
+                        conn.commit()
+                        if new_status.lower() == "active":
+                            status_display_confirmation = bcolors.OKGREEN + "██ ACTIVE" + bcolors.ENDC
+                        elif new_status.lower() == "inactive":
+                            status_display_confirmation = bcolors.FAIL + "██ INACTIVE" + bcolors.ENDC
+                        else:
+                            status_display_confirmation = new_status
+                        print(f"Product status changed to {status_display_confirmation} successfully")
+                        time.sleep(1)
+                        editProduct()
+
+            else:
+                cursor.execute("SELECT * FROM products WHERE product_code=?", (ep_pcode.upper(),))
+                result = cursor.fetchone()
+                status = result[7]
+                if result:
+                    if status.lower() == "active":
+                        status_display = bcolors.OKGREEN + "██ ACTIVE" + bcolors.ENDC
+                    elif status.lower() == "inactive":
+                        status_display = bcolors.FAIL + "██ INACTIVE" + bcolors.ENDC
                     else:
-                        status_display_confirmation = new_status
-                    print(f"Product status changed to {status_display_confirmation} successfully")
-                    time.sleep(1)
-                    editProduct()
+                        status_display = status
+                    print("")
+                    print(f"1. Product name: {result[1]}")
+                    print(f"2. Product code: {result[2]}")
+                    print(f"3. Product EAN: {result[3]}")
+                    print(f"4. Product location: {result[5]}") #stock is not displayed here, skipping [4]
+                    print(f"5. Product supplier: {result[6]}")
+                    print(f"6. Product status: {status_display}")
+                    print("")
+                    while True:
+                        try: 
+                            entryEdit = int(input("Enter which line you want to edit (or '0' to exit): "))
+                            break
+
+                        except ValueError:
+                            print("Please input a number")
+                            continue
+
+                    if entryEdit == 0:
+                        editProduct()
+
+                    if entryEdit == 1:
+                        new_name = input(f"Please enter new product name (current: {result[1]}): ")
+                        cursor.execute("UPDATE products SET product_name=? WHERE product_code=?", (new_name, ep_pcode.upper()))
+                        conn.commit()
+                        print(f"Product name changed to {new_name} successfully")
+                        time.sleep(1)
+                        editProduct()
+                    elif entryEdit == 2:
+                        new_pcode = input(f"Please enter new product code (Current: {result[2]}): ")
+                        cursor.execute("UPDATE products SET product_code=? WHERE product_code=?", (new_pcode, ep_pcode.upper()))
+                        conn.commit()
+                        print(f"Product code changed to {new_pcode} successfully")
+                        time.sleep(1)
+                        editProduct()
+                    elif entryEdit == 3:
+                        new_ean = input(f"Please enter new product EAN (Current: {result[3]}): ")
+                        cursor.execute("UPDATE products SET ean=? WHERE product_code=?", (new_ean, ep_pcode.upper()))
+                        conn.commit()
+                        print(f"Product EAN changed to {new_ean} successfully")
+                        time.sleep(1)
+                        editProduct()
+                    elif entryEdit == 4:
+                        new_location = input(f"Please enter new product location (Current: {result[5]}): ")
+                        cursor.execute("UPDATE products SET location=? WHERE product_code=?", (new_location, ep_pcode.upper()))
+                        conn.commit()
+                        print(f"Product location changed to {new_location} successfully")
+                        time.sleep(1)
+                        editProduct()
+                    elif entryEdit == 5:
+                        new_supplier = input(f"Please enter new product supplier (Current: {result[6]}): ")
+                        cursor.execute("UPDATE products SET supplier=? WHERE product_code=?", (new_supplier, ep_pcode.upper()))
+                        conn.commit()
+                        print(f"Product supplier changed to {new_supplier} successfully")
+                        time.sleep(1)
+                        editProduct()
+                    elif entryEdit == 6:
+                        ep_status = input(f"Please enter new product EAN (Current: {status_display} | A = Active, I = Inactive or type custom status): ")
+                        if ep_status.lower() == "a":
+                            new_status = "Active"
+                        elif ep_status.lower() == "i":
+                            new_status = "Inactive"
+                        else:
+                            new_status = ep_status
+                        cursor.execute("UPDATE products SET status=? WHERE product_code=?", (new_status, ep_pcode.upper()))
+                        if new_status.lower() == "active":
+                            status_display_confirmation = bcolors.OKGREEN + "██ ACTIVE" + bcolors.ENDC
+                        elif new_status.lower() == "inactive":
+                            status_display_confirmation = bcolors.FAIL + "██ INACTIVE" + bcolors.ENDC
+                        else:
+                            status_display_confirmation = new_status
+                        print(f"Product status changed to {status_display_confirmation} successfully")
+                        time.sleep(1)
+                        editProduct()
         except:
             print("Invalid product, try again")
 
@@ -584,26 +795,28 @@ def viewProductDetails():
                 result = cursor.fetchall()
                 
                 if result:
-                    status = result[0][7]  # Assuming status is at index 7
-                    if status.lower() == "active":
-                        status_display = bcolors.OKGREEN + "██ ACTIVE" + bcolors.ENDC
-                    elif status.lower() == "inactive":
-                        status_display = bcolors.FAIL + "██ INACTIVE" + bcolors.ENDC
+                    if len(result[0]) > 7:  # Ensure there are enough columns in the result
+                        status = result[0][7]  # Assuming status is at index 7
+                        if status.lower() == "active":
+                            status_display = bcolors.OKGREEN + "██ ACTIVE" + bcolors.ENDC
+                        elif status.lower() == "inactive":
+                            status_display = bcolors.FAIL + "██ INACTIVE" + bcolors.ENDC
+                        else:
+                            status_display = status
+
+                        # Accessing product details safely
+                        print("")
+                        print(f"Product name: {result[0][1]}")  # Access first product
+                        print(f"Product code: {result[0][2]}")
+                        print(f"Product EAN: {result[0][3]}")
+                        print(f"Product location: {result[0][5]}")  # skipping stock
+                        print(f"Product supplier: {result[0][6]}")
+                        print(f"Product status: {status_display}")
+                        print("")
+                        print("Barcode:")
+                        generate_barcode_to_terminal(result[0][3])  # Assuming barcode is at index 3
                     else:
-                        status_display = status
-                    
-                    # Accessing product details safely
-                    print("")
-                    print(f"Product name: {result[0][1]}")  # Access first product
-                    print(f"Product code: {result[0][2]}")
-                    print(f"Product EAN: {result[0][3]}")
-                    print(f"Product location: {result[0][5]}")  # stock is not displayed here, skipping [4]
-                    print(f"Product supplier: {result[0][6]}")
-                    print(f"Product status: {status_display}")
-                    print("")
-                    print("Barcode:")
-                    generate_barcode_to_terminal(result[3])
-                    
+                        print("Product details are incomplete.")
                 else:
                     print("Product not found.")
                     time.sleep(0.5)
@@ -614,26 +827,26 @@ def viewProductDetails():
                 result = cursor.fetchall()
 
                 if result:
-                    status = result[0][7]  # Get status from the first product
-                    if status.lower() == "active":
-                        status_display = bcolors.OKGREEN + "██ ACTIVE" + bcolors.ENDC
-                    elif status.lower() == "inactive":
-                        status_display = bcolors.FAIL + "██ INACTIVE" + bcolors.ENDC
+                    if len(result[0]) > 7:  # Ensure there are enough columns in the result
+                        status = result[0][7]  # Get status from the first product
+                        if status.lower() == "active":
+                            status_display = bcolors.OKGREEN + "██ ACTIVE" + bcolors.ENDC
+                        elif status.lower() == "inactive":
+                            status_display = bcolors.FAIL + "██ INACTIVE" + bcolors.ENDC
+                        else:
+                            status_display = status
+
+                        # Accessing product details safely
+                        print("")
+                        print(f"Product name: {result[0][1]}")
+                        print(f"Product code: {result[0][2]}")
+                        print(f"Product EAN: {result[0][3]}")
+                        print(f"Product location: {result[0][5]}")  # skipping stock
+                        print(f"Product supplier: {result[0][6]}")
+                        print(f"Product status: {status_display}")
+                        print("")
                     else:
-                        status_display = status
-                    barcode = int(result[3])
-                    # Accessing product details safely
-                    print("")
-                    print(f"Product name: {result[0][1]}")
-                    print(f"Product code: {result[0][2]}")
-                    print(f"Product EAN: {result[0][3]}")
-                    print(f"Product location: {result[0][5]}")  # stock is not displayed here, skipping [4]
-                    print(f"Product supplier: {result[0][6]}")
-                    print(f"Product status: {status_display}")
-                    print("")
-                    print("Barcode:")
-                    print(barcode)
-                    generate_barcode_to_terminal(barcode)
+                        print("Product details are incomplete.")
                 else:
                     print("Product not found.")
                     time.sleep(0.5)
@@ -720,6 +933,7 @@ def removeProduct():
         
     except Exception as e:
         print(f"An error occurred: {e}")
+
 
 
 def settings():
