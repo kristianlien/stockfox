@@ -3,47 +3,8 @@ import time
 import msvcrt
 import sqlite3
 import webbrowser
-from barcode.writer import ImageWriter
-from PIL import Image
-import numpy as np
 import csv
 from datetime import datetime
-
-
-def generate_barcode_to_terminal(code):
-    code = str(code)  # Convert input to string if it's not already
-    
-    # Encoding for each digit (0-9)
-    encoding = {
-        '0': '█  █    ',
-        '1': '█   █   ',
-        '2': '█   █  █',
-        '3': '█   █ █ ',
-        '4': '█    ██ ',
-        '5': '█    █ █',
-        '6': '█    █  █',
-        '7': '  █ █   █',
-        '8': '  █  █  █',
-        '9': '  █   █ █'
-    }
-
-    # Start with the left guard pattern (as normal)
-    barcode_str = '█'  # Start guard bar
-
-    # Loop through each digit in the input code and translate it
-    for digit in code:
-        if digit in encoding:
-            barcode_str += encoding[digit]
-        else:
-            raise ValueError(f"Invalid character '{digit}' in the input. Only digits 0-9 are allowed.")
-
-    # End with the right guard pattern
-    barcode_str += '█'  # End guard bar
-
-    # Print the barcode multiple times without inverting
-    for i in range(8):  # Adjust the range to display multiple lines if needed
-        print(barcode_str)
-
 
 def addEanToProduct():
     while True:
@@ -940,7 +901,7 @@ def settings():
     console_clear()
     print("---------- StockFox ----------")
     print("2024 © Lien Vending Solutions")
-    print("Version Beta 1.0")
+    print("Version Beta 1.1")
     print("Made in Norway ♥")
     print("")
     print("Support: stockfox@lienvending.solutions")
