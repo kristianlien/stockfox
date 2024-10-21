@@ -310,13 +310,17 @@ def generatePicklist():  # make it remove from stock, and add cancel functionali
         </style>
     </head>
     <body>
-        <img src="https://files.catbox.moe/x46dlm.png" alt="Company Logo" style="width:1250;">
+
+        <! -- CHANGE LINK TO TOP IMAGE FOR PICKLIST HERE-->
+        <img src="https://files.catbox.moe/fcetaw.png" alt="Company Logo" style="width:1250;"> <! --  REPLACE catbox.moe LINK WITH IMAGE LINK-->
+        <! -- CHANGE LINK TO TOP IMAGE FOR PICKLIST HERE-->
+
         <p>Dato: {current_date}</p>
         <table>
             <tr>
-                <th>Produktnavn</th>
-                <th>Kvante (F.PK)</th>
-                <th>Plassering</th>
+                <th>Product name</th>
+                <th>Quantity</th>
+                <th>Location</th>
             </tr>
     '''
 
