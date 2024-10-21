@@ -127,4 +127,8 @@ The system includes a few important security measures:
 ### SQL Command Warning: 
 In the editProduct() function, custom SQL commands are allowed but only with warnings to avoid dangerous commands (e.g., DROP).
 
-### Unique Constraints: The database schema enforces unique constraints on product_code and ean to prevent duplicate entries.
+### Unique Constraints:
+The database schema enforces unique constraints on product_code and ean to prevent duplicate entries.
+
+## Support
+Contact stockfox@lienvending.solutions for any questions or support
