@@ -135,7 +135,7 @@ def menu():
     print("3. Update individual product stock")
     print("4. Update/add inventory from new shipment")
     print("5. Insert new product into system")
-    print("6: Edit products")
+    print("6: Edit products")#
     print("7: View product details")
     print("8: Remove product from system")
     print("9: Settings/information")
@@ -674,7 +674,7 @@ def editProduct():
                     print(f"1. Product name: {result[1]}")
                     print(f"2. Product code: {result[2]}")
                     print(f"3. Product EAN: {result[3]}")
-                    print(f"4. Product location: {result[5]}") #stock is not displayed here, skipping [4]
+                    print(f"4. Product location: {result[5]}") #stock is not displayed
                     print(f"5. Product supplier: {result[6]}")
                     print(f"6. Product status: {status_display}")
                     print("")
@@ -779,7 +779,6 @@ def viewProductDetails():
                         print(f"Product status: {status_display}")
                         print("")
                         print("Barcode:")
-                        generate_barcode_to_terminal(result[0][3])  # Assuming barcode is at index 3
                     else:
                         print("Product details are incomplete.")
                 else:
@@ -792,8 +791,8 @@ def viewProductDetails():
                 result = cursor.fetchall()
 
                 if result:
-                    if len(result[0]) > 7:  # Ensure there are enough columns in the result
-                        status = result[0][7]  # Get status from the first product
+                    if len(result[0]) > 7:  
+                        status = result[0][7]
                         if status.lower() == "active":
                             status_display = bcolors.OKGREEN + "██ ACTIVE" + bcolors.ENDC
                         elif status.lower() == "inactive":
